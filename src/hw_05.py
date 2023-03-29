@@ -28,7 +28,7 @@ mobil_gvkey = data_wrds.loc[data_wrds.conm == "MOBIL CORP", :].gvkey.unique()
 date_of_merger = data_wrds.loc[data_wrds.conm ==
                                "MOBIL CORP", :].fyear[-1:].values
 date_start_analysis = date_of_merger-5
-date_end_analysis = date_of_merger+5
+date_end_analysis = date_of_merger+6
 
 # --------------- Create list of book leverage and asset growth -------------- #
 data_exxon = data_ratios.loc[data_wrds.gvkey.isin(
@@ -37,5 +37,40 @@ data_exxon = data_ratios.loc[data_wrds.gvkey.isin(
 data_exxon_merger_window = data_exxon[data_exxon.fyear.isin(
     list(range(int(date_start_analysis[0]), int(date_end_analysis[0]+1))))]
 
-data_exxon_merger_window.groupby(["gvkey"])[
-    ['book_leverage_1', 'book_leverage_2', 'net_book_leverage_1', 'at']].pct_change()
+# ---------------------------------------------------------------------------- #
+#                       Get mapping of keys to variables                       #
+# ---------------------------------------------------------------------------- #
+varnames = {"book_leverage_1": "Book Leverage 1",
+            "book_leverage_2": "Book Leverage 2",
+            "net_book_leverage_1": "Net Book Leverage 1",
+            "c_e_at_mv": "Common Equity",
+            "market_leverage": "Market Leverage",
+            "asset_tangibility": "Asset Tangibility",
+            "cash_sti": "Cash \& Short-term Ratio",
+            "roe": "Return on Equity",
+            "profit_margin": "Profit Margin",
+            "capex": "CapEx Ratio",
+            "rd": "R\&D Ratio",
+            "dividend_payer": "Dividend Payer",
+            "dividend_yield": "Dividend Yield",
+            "total_payout": "Total Payout Ratio",
+            "ebit_interest_coverage": "EBIT Ineterest Coverage",
+            "datadate": "Date",
+            "at": "Total assets"}
+
+# ------------------------ Beautify and write to latex ----------------------- #
+exxon_merger = data_exxon_merger_window.groupby('datadate')[[
+    'book_leverage_1', 'book_leverage_2', 'net_book_leverage_1', 'at']].apply(lambda x: x.sum())
+
+exxon_merger_growth_rates = exxon_merger.pct_change()
+exxon_merger_growth_rates.reset_index(inplace=True)
+
+exxon_merger_growth_rates.dropna(inplace=True)
+exxon_merger_growth_rates.rename(columns=varnames, inplace=True)
+exxon_merger_growth_rates.dropna(inplace=True)
+exxon_merger_growth_rates.round(2).astype(str).replace(r'\.0$', '', regex=True)
+exxon_merger_growth_rates.reset_index(drop=True, inplace=True)
+exxon_merger_growth_rates.to_latex(
+    "results/exxon_merger_growth_rates_5.tex",
+    index=False,
+    caption="Exxon Mobil Merger Book Leverage and Asset Growth")

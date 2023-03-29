@@ -21,11 +21,11 @@ data = pd.read_csv('data/wrds_raw.csv')
 print(data['loc'].value_counts())
 
 # -------------------- Only keep US headqurtered companies ------------------- #
-num_companies_total = data.shape[0]
+num_companies_total = data.gvkey.nunique()
 data = data[data['loc'] == 'USA']
-num_companies_usa = data.shape[0]
+num_companies_usa = data.gvkey.nunique()
 print(
-    f'We have {num_companies_total} in total and {num_companies_usa} in the US.')
+    f'We have {num_companies_total} companies in total and {num_companies_usa} in the US.')
 
 # ------------------------ Save the preprocessed data ------------------------ #
 data.to_csv('data/wrds_preprocessed.csv', index=False)

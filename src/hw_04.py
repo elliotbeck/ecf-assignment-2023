@@ -17,12 +17,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 
 # ----------------------------- Load in the data ----------------------------- #
-data_ratios = pd.read_csv('data/wrds_ratios.csv')
+data_ratios_win = pd.read_csv('data/wrds_ratios.csv')
 data_wrds = pd.read_csv('data/wrds_preprocessed.csv')
 
 # ------------ Combine data to calculate growth rates per company ------------ #
 data_market_value = data_wrds[['fyear', 'fyr', 'gvkey']]
-data_market_value = data_market_value.join(data_ratios[['c_e_at_mv']])
+data_market_value = data_market_value.join(data_ratios_win[['c_e_at_mv']])
 data_market_value['c_e_at_mv_yoy'] = data_market_value.groupby(
     'gvkey').c_e_at_mv.pct_change()
 
@@ -34,9 +34,38 @@ data_market_value = data_market_value[data_market_value['fyear'].isin([
 data_market_value.c_e_at_mv_yoy.replace(
     [np.inf, -np.inf], np.nan, inplace=True)
 
+data_market_value["fyear"] = data_market_value["fyear"].astype(int)
+data_market_value["fyr"] = data_market_value["fyr"].astype(int)
+# ------- Calculate the mean and standard deviation of the growth rates ------ #
+mean_over_time = data_market_value.groupby(
+    ['fyear', 'fyr']).c_e_at_mv_yoy.mean().T
+mean_over_time = mean_over_time.reset_index()
 
-data_market_value.groupby(
-    ['fyear', 'fyr']).c_e_at_mv_yoy.mean().unstack().T
-data_market_value.groupby(
-    ['fyear', 'fyr']).c_e_at_mv_yoy.std().unstack().T.plot.bar()
-plt.show()
+sd_over_time = data_market_value.groupby(
+    ['fyear', 'fyr']).c_e_at_mv_yoy.std().T
+sd_over_time = sd_over_time.reset_index()
+
+# ------------------ Combine, beautify and write to tex file ----------------- #
+mean_sd_over_time = pd.concat(
+    [mean_over_time, sd_over_time["c_e_at_mv_yoy"]], axis=1)
+
+mean_sd_over_time.columns = ['Fiscal Year', 'Month', 'Mean', 'SD']
+
+mean_sd_over_time = mean_sd_over_time.round(2).astype(
+    str).replace(r'\.0$', '', regex=True)
+
+lat_new = mean_sd_over_time.style.set_table_styles([
+    {'selector': 'toprule', 'props': ':hline;'},
+    {'selector': 'midrule', 'props': ':hline;'},
+    {'selector': 'bottomrule', 'props': ':hline;'},],
+    overwrite=False)
+
+lat_new = lat_new.hide(axis="index").to_latex(
+    column_format='cccc',
+    caption='Percentage Change of Common Equity \n by Fiscal year and month')
+
+
+file_name = "results/mean_sd_over_time_4.tex"  # Include directory path if needed
+tex_file = open(file_name, "w")  # This will overwrite an existing file
+tex_file.write(lat_new)
+tex_file.close()

@@ -15,8 +15,9 @@ Modified By: Elliot Beck (elliot.beck@bf.uzh.ch>)
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
-from statsmodels.formula.api import ols
-from linearmodels.panel import PanelOLS
+from statsmodels.regression.linear_model import OLS
+from linearmodels.panel import PanelOLS, PooledOLS
+from linearmodels.panel.results import compare
 from stargazer.stargazer import Stargazer
 
 # ----------------------------- Load in the data ----------------------------- #
@@ -25,72 +26,149 @@ data_ratios = pd.read_csv('data/wrds_ratios.csv')
 data_ratios_win = pd.read_csv('data/wrds_ratios_winsorized.csv')
 
 # ---------------------------------------------------------------------------- #
+#                       Get mapping of keys to variables                       #
+# ---------------------------------------------------------------------------- #
+varnames = {"book_leverage_1": "Book Leverage 1",
+            "book_leverage_2": "Book Leverage 2",
+            "net_book_leverage_1": "Net Book Leverage 1",
+            "c_e_at_mv": "Common Equity",
+            "market_leverage": "Market Leverage",
+            "asset_tangibility": "Asset Tangibility",
+            "cash_sti": "Cash \& Short-term Ratio",
+            "roe": "Return on Equity",
+            "profit_margin": "Profit Margin",
+            "capex": "CapEx Ratio",
+            "rd": "R&D Ratio",
+            "dividend_payer": "Dividend Payer",
+            "dividend_yield": "Dividend Yield",
+            "total_payout": "Total Payout Ratio",
+            "ebit_interest_coverage": "EBIT Ineterest Coverage",
+            "at": "Total Assets",
+            "fyear": "Fiscal Year"}
+
+data_wrds = data_wrds.rename(columns=varnames)
+data_ratios = data_ratios.rename(columns=varnames)
+data_ratios_win = data_ratios_win.rename(columns=varnames)
+
+# ---------------------------------------------------------------------------- #
 #                    a) Pooled OLS with non-winsorized data                    #
 # ---------------------------------------------------------------------------- #
 
 # ------------------------ Prepare data for pooled ols ----------------------- #
-data_a = pd.DataFrame(data_ratios['book_leverage_1']).join(
-    np.log(data_wrds['at'], where=(data_wrds['at'].to_numpy() > 0)))
-data_a = data_a.join(data_ratios[['asset_tangibility',
-                                  'rd',
-                                  'dividend_payer',
-                                  'profit_margin',
-                                  'fyear']])
+data_a = pd.DataFrame(data_ratios['Book Leverage 1']).join(
+    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'] > 0)))
+data_a = data_a.join(data_ratios[['Asset Tangibility',
+                                  'R&D Ratio',
+                                  'Dividend Payer',
+                                  'Profit Margin',
+                                  'Fiscal Year']])
+
+
+data_a["sic"] = data_wrds.sic.astype("string").str[:2].astype(int)
+data_a["fyear_sic"] = data_a["Fiscal Year"].astype(
+    "string") + data_a.sic.astype("string")
+
+data_a['fyear'] = data_a['Fiscal Year']
+data_a.set_index(['sic', 'fyear'], inplace=True)
+data_a.replace([np.inf, -np.inf], np.nan, inplace=True)
+data_a.dropna(inplace=True)
+
+# -------------------- Extract the data from the DataFrame ------------------- #
+exog = data_a.iloc[:, 1:-2]
+exog = sm.add_constant(exog)
+target = data_a.iloc[:, 0]
+
 
 # ------------------------------- Fit the model ------------------------------ #
-reg_a = ols(formula="book_leverage_1 ~ at+asset_tangibility+rd+dividend_payer+profit_margin",
-            data=data_a).fit()
+reg_a = PooledOLS(target,
+                  exog).fit()
 
 # ---------------------------------------------------------------------------- #
 #                      b) Pooled OLS with winsorized data                      #
 # ---------------------------------------------------------------------------- #
-data_b = pd.DataFrame(data_ratios_win['book_leverage_1']).join(
-    np.log(data_wrds['at'], where=(data_wrds['at'].to_numpy() > 0)))
-data_b = data_b.join(data_ratios_win[['asset_tangibility',
-                                      'rd',
-                                      'dividend_payer',
-                                      'profit_margin',
-                                      'fyear']])
+data_b = pd.DataFrame(data_ratios_win['Book Leverage 1']).join(
+    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'] > 0)))
+data_b = data_b.join(data_ratios_win[['Asset Tangibility',
+                                      'R&D Ratio',
+                                      'Dividend Payer',
+                                      'Profit Margin',
+                                      'Fiscal Year']])
+
+
+data_b["sic"] = data_wrds.sic.astype("string").str[:2].astype(int)
+data_b["fyear_sic"] = data_b["Fiscal Year"].astype(
+    "string") + data_b.sic.astype("string")
+
+data_b['fyear'] = data_b['Fiscal Year']
+data_b.set_index(['sic', 'fyear'], inplace=True)
+data_b.replace([np.inf, -np.inf], np.nan, inplace=True)
+data_b.dropna(inplace=True)
+
+# -------------------- Extract the data from the DataFrame ------------------- #
+exog = data_b.iloc[:, 1:-2]
+exog = sm.add_constant(exog)
+target = data_b.iloc[:, 0]
 
 # ------------------------------- Fit the model ------------------------------ #
-reg_b = ols(formula="book_leverage_1 ~ at+asset_tangibility+rd+dividend_payer+profit_margin",
-            data=data_b).fit()
+reg_b = PooledOLS(target,
+                  exog).fit()
+
+reg_b.summary
 
 # ---------------------------------------------------------------------------- #
 #                     c) Restriced book leverage pooled OLS                    #
 # ---------------------------------------------------------------------------- #
 data_c = data_b.copy()
-data_c['book_leverage_1'] = data_c['book_leverage_1'].clip(0, 1)
+data_c['Book Leverage 1'] = data_c['Book Leverage 1'].clip(0, 1)
 
 # ------------------------------- Fit the model ------------------------------ #
-reg_c = ols(formula="book_leverage_1 ~ at+asset_tangibility+rd+dividend_payer+profit_margin",
-            data=data_c).fit()
+reg_c = PooledOLS(data_c['Book Leverage 1'],
+                  exog).fit()
+reg_c.summary
 
 # --------------------------- Compare a), b) and c) -------------------------- #
+table = {
+    '(1)': reg_a,
+    '(2)': reg_b,
+    '(3)': reg_c,
+}
+
+comparison = compare(table)
+summary = comparison.summary
+
+file_name = "results/reg_3_a_b_c.tex"  # Include directory path if needed
+tex_file = open(file_name, "w")  # This will overwrite an existing file
+tex_file.write(summary.as_latex())
+tex_file.close()
+
+
 tab = Stargazer([reg_a, reg_b, reg_c])
 tab.custom_columns(['Original', 'Winsorized', "Restricted"], [1, 1, 1])
 tab.show_model_numbers(False)
-tab.render_latex()
+tab.show_degrees_of_freedom(False)
+file_name = "results/reg_3_c.tex"  # Include directory path if needed
+tex_file = open(file_name, "w")  # This will overwrite an existing file
+tex_file.write(tab.render_latex())
+tex_file.close()
 
 # ---------------------------------------------------------------------------- #
 #                               d) Fixed effects                               #
 # ---------------------------------------------------------------------------- #
 
 # ---------------------------- Time fixed effects ---------------------------- #
-data_d = pd.DataFrame(data_ratios_win['book_leverage_1']).join(
-    np.log(data_wrds['at'], where=(data_wrds['at'].to_numpy() > 0)))
-data_d = data_d.join(data_ratios_win[['asset_tangibility',
-                                      'rd',
-                                      'dividend_payer',
-                                      'profit_margin',
-                                      'fyear']])
+data_d = pd.DataFrame(data_ratios_win['Book Leverage 1']).join(
+    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'].to_numpy() > 0)))
+data_d = data_d.join(data_ratios_win[['Asset Tangibility',
+                                      'R&D Ratio',
+                                     'Dividend Payer',
+                                      'Profit Margin',
+                                      'Fiscal Year']])
 
 data_d["sic"] = data_wrds.sic.astype("string").str[:2].astype(int)
-# data_d["sic"] = pd.Categorical(data_d.sic)
-# data_d["fyear"] = pd.Categorical(data_ratios_win.fyear)
 data_d["fyear_sic"] = pd.Categorical(
-    data_d.fyear.astype("string") + data_d.sic.astype("string"))
-data_d.set_index(['sic', 'fyear'], inplace=True)
+    data_d['Fiscal Year'].astype("string") + data_d.sic.astype("string"))
+data_d.set_index(['sic', 'Fiscal Year'], inplace=True)
+data_d.replace([np.inf, -np.inf], np.nan, inplace=True)
 data_d.dropna(inplace=True)
 
 # -------------------- Extract the data from the DataFrame ------------------- #
@@ -118,22 +196,40 @@ reg_d_3 = PanelOLS(target,
 
 fit_d_3 = reg_d_3.fit()
 
+
+# ---------------------------- Write the tex files --------------------------- #
+table = {
+    '(1)': fit_d_1,
+    '(2)': fit_d_2,
+    '(3)': fit_d_3,
+}
+
+comparison = compare(table)
+summary = comparison.summary
+
+file_name = "results/reg_3_d.tex"  # Include directory path if needed
+tex_file = open(file_name, "w")  # This will overwrite an existing file
+tex_file.write(summary.as_latex())
+tex_file.close()
+
 # ---------------------------------------------------------------------------- #
 #      e) Panel OLS with time and industry fixed effects unwisorized data      #
 # ---------------------------------------------------------------------------- #
-data_e = pd.DataFrame(data_ratios['book_leverage_1']).join(
-    np.log(data_wrds['at'], where=(data_wrds['at'].to_numpy() > 0)))
-data_e = data_e.join(data_ratios[['asset_tangibility',
-                                  'rd',
-                                  'dividend_payer',
-                                  'profit_margin',
-                                  'fyear']])
+data_e = pd.DataFrame(data_ratios['Book Leverage 1']).join(
+    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'].to_numpy() > 0)))
+data_e = data_e.join(data_ratios[['Asset Tangibility',
+                                  'R&D Ratio',
+                                 'Dividend Payer',
+                                  'Profit Margin',
+                                  'Fiscal Year']])
 
 data_e["sic"] = data_wrds.sic.astype("string").str[:2].astype(int)
-data_e["fyear_sic"] = data_e.fyear.astype(
+data_e["fyear_sic"] = data_e["Fiscal Year"].astype(
     "string") + data_e.sic.astype("string")
 
-data_e.set_index(['sic', 'fyear'], inplace=True)
+data_e.set_index(['sic', 'Fiscal Year'], inplace=True)
+data_e.replace([np.inf, -np.inf], np.nan, inplace=True)
+data_e.dropna(inplace=True)
 
 # -------------------- Extract the data from the DataFrame ------------------- #
 exog = data_e.iloc[:, 1:-1]
@@ -141,15 +237,57 @@ exog = sm.add_constant(exog)
 target = data_e.iloc[:, 0]
 
 # ------------------------------- Fit the model ------------------------------ #
-reg_e = PanelOLS(target,
-                 exog,
-                 time_effects=True,
-                 entity_effects=True)
+reg_e_1 = PanelOLS(target,
+                   exog,
+                   time_effects=True,
+                   entity_effects=True)
 
-fit_e = reg_e.fit(
+fit_e_1 = reg_e_1.fit(
     cov_type="clustered",
     cluster_entity=True,
     cluster_time=True)
 
-reg_c.summary()
-fit_e
+# ------------------------------- Again as in c ------------------------------ #
+data_e = pd.DataFrame(data_ratios_win['Book Leverage 1']).join(
+    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'].to_numpy() > 0)))
+data_e = data_e.join(data_ratios_win[['Asset Tangibility',
+                                      'R&D Ratio',
+                                     'Dividend Payer',
+                                      'Profit Margin',
+                                      'Fiscal Year']])
+data_e["sic"] = data_wrds.sic.astype("string").str[:2].astype(int)
+data_e["fyear_sic"] = data_e["Fiscal Year"].astype(
+    "string") + data_e.sic.astype("string")
+
+data_e.set_index(['sic', 'Fiscal Year'], inplace=True)
+data_e.replace([np.inf, -np.inf], np.nan, inplace=True)
+data_e.dropna(inplace=True)
+data_e['Book Leverage 1'] = data_e['Book Leverage 1'].clip(0, 1)
+
+# -------------------- Extract the data from the DataFrame ------------------- #
+exog = data_e.iloc[:, 1:-1]
+exog = sm.add_constant(exog)
+target = data_e.iloc[:, 0]
+
+# ------------------------------- Fit the model ------------------------------ #
+reg_e_2 = PanelOLS(target,
+                   exog,
+                   time_effects=False,
+                   entity_effects=False)
+
+fit_e_2 = reg_e_2.fit()
+
+
+# ---------------------------- Write the tex files --------------------------- #
+table = {
+    '(1)': fit_e_1,
+    '(2)': fit_e_2
+}
+
+comparison = compare(table)
+summary = comparison.summary
+
+file_name = "results/reg_3_e.tex"  # Include directory path if needed
+tex_file = open(file_name, "w")  # This will overwrite an existing file
+tex_file.write(summary.as_latex())
+tex_file.close()
