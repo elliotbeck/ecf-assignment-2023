@@ -15,10 +15,8 @@ Modified By: Elliot Beck (elliot.beck@bf.uzh.ch>)
 import pandas as pd
 import numpy as np
 import statsmodels.api as sm
-from statsmodels.regression.linear_model import OLS
 from linearmodels.panel import PanelOLS, PooledOLS
 from linearmodels.panel.results import compare
-from stargazer.stargazer import Stargazer
 
 # ----------------------------- Load in the data ----------------------------- #
 data_wrds = pd.read_csv('data/wrds_preprocessed.csv')
@@ -55,8 +53,11 @@ data_ratios_win = data_ratios_win.rename(columns=varnames)
 # ---------------------------------------------------------------------------- #
 
 # ------------------------ Prepare data for pooled ols ----------------------- #
-data_a = pd.DataFrame(data_ratios['Book Leverage 1']).join(
-    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'] > 0)))
+data_a = pd.DataFrame(data_ratios['Book Leverage 1'])
+total_assets = np.log(data_wrds['Total Assets'],
+                      where=(data_wrds['Total Assets'] > 0))
+total_assets[data_wrds['Total Assets'].isnull()] = np.NaN
+data_a["Total Assets"] = total_assets
 data_a = data_a.join(data_ratios[['Asset Tangibility',
                                   'R&D Ratio',
                                   'Dividend Payer',
@@ -83,11 +84,16 @@ target = data_a.iloc[:, 0]
 reg_a = PooledOLS(target,
                   exog).fit()
 
+reg_a.summary
+
 # ---------------------------------------------------------------------------- #
 #                      b) Pooled OLS with winsorized data                      #
 # ---------------------------------------------------------------------------- #
-data_b = pd.DataFrame(data_ratios_win['Book Leverage 1']).join(
-    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'] > 0)))
+data_b = pd.DataFrame(data_ratios_win['Book Leverage 1'])
+total_assets = np.log(data_wrds['Total Assets'],
+                      where=(data_wrds['Total Assets'] > 0))
+total_assets[data_wrds['Total Assets'].isnull()] = np.NaN
+data_b["Total Assets"] = total_assets
 data_b = data_b.join(data_ratios_win[['Asset Tangibility',
                                       'R&D Ratio',
                                       'Dividend Payer',
@@ -113,8 +119,6 @@ target = data_b.iloc[:, 0]
 reg_b = PooledOLS(target,
                   exog).fit()
 
-reg_b.summary
-
 # ---------------------------------------------------------------------------- #
 #                     c) Restriced book leverage pooled OLS                    #
 # ---------------------------------------------------------------------------- #
@@ -124,7 +128,6 @@ data_c['Book Leverage 1'] = data_c['Book Leverage 1'].clip(0, 1)
 # ------------------------------- Fit the model ------------------------------ #
 reg_c = PooledOLS(data_c['Book Leverage 1'],
                   exog).fit()
-reg_c.summary
 
 # --------------------------- Compare a), b) and c) -------------------------- #
 table = {
@@ -141,23 +144,16 @@ tex_file = open(file_name, "w")  # This will overwrite an existing file
 tex_file.write(summary.as_latex())
 tex_file.close()
 
-
-tab = Stargazer([reg_a, reg_b, reg_c])
-tab.custom_columns(['Original', 'Winsorized', "Restricted"], [1, 1, 1])
-tab.show_model_numbers(False)
-tab.show_degrees_of_freedom(False)
-file_name = "results/reg_3_c.tex"  # Include directory path if needed
-tex_file = open(file_name, "w")  # This will overwrite an existing file
-tex_file.write(tab.render_latex())
-tex_file.close()
-
 # ---------------------------------------------------------------------------- #
 #                               d) Fixed effects                               #
 # ---------------------------------------------------------------------------- #
 
 # ---------------------------- Time fixed effects ---------------------------- #
-data_d = pd.DataFrame(data_ratios_win['Book Leverage 1']).join(
-    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'].to_numpy() > 0)))
+data_d = pd.DataFrame(data_ratios_win['Book Leverage 1'])
+total_assets = np.log(data_wrds['Total Assets'],
+                      where=(data_wrds['Total Assets'] > 0))
+total_assets[data_wrds['Total Assets'].isnull()] = np.NaN
+data_d["Total Assets"] = total_assets
 data_d = data_d.join(data_ratios_win[['Asset Tangibility',
                                       'R&D Ratio',
                                      'Dividend Payer',
@@ -215,8 +211,11 @@ tex_file.close()
 # ---------------------------------------------------------------------------- #
 #      e) Panel OLS with time and industry fixed effects unwisorized data      #
 # ---------------------------------------------------------------------------- #
-data_e = pd.DataFrame(data_ratios['Book Leverage 1']).join(
-    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'].to_numpy() > 0)))
+data_e = pd.DataFrame(data_ratios['Book Leverage 1'])
+total_assets = np.log(data_wrds['Total Assets'],
+                      where=(data_wrds['Total Assets'] > 0))
+total_assets[data_wrds['Total Assets'].isnull()] = np.NaN
+data_e["Total Assets"] = total_assets
 data_e = data_e.join(data_ratios[['Asset Tangibility',
                                   'R&D Ratio',
                                  'Dividend Payer',
@@ -226,13 +225,14 @@ data_e = data_e.join(data_ratios[['Asset Tangibility',
 data_e["sic"] = data_wrds.sic.astype("string").str[:2].astype(int)
 data_e["fyear_sic"] = data_e["Fiscal Year"].astype(
     "string") + data_e.sic.astype("string")
+data_e["gvkey"] = data_wrds["gvkey"]
 
 data_e.set_index(['sic', 'Fiscal Year'], inplace=True)
 data_e.replace([np.inf, -np.inf], np.nan, inplace=True)
 data_e.dropna(inplace=True)
 
 # -------------------- Extract the data from the DataFrame ------------------- #
-exog = data_e.iloc[:, 1:-1]
+exog = data_e.iloc[:, 1:-2]
 exog = sm.add_constant(exog)
 target = data_e.iloc[:, 0]
 
@@ -242,14 +242,15 @@ reg_e_1 = PanelOLS(target,
                    time_effects=True,
                    entity_effects=True)
 
-fit_e_1 = reg_e_1.fit(
-    cov_type="clustered",
-    cluster_entity=True,
-    cluster_time=True)
+fit_e_1 = reg_e_1.fit(cov_type="clustered", clusters=data_e["gvkey"])
+fit_e_1.summary
 
 # ------------------------------- Again as in c ------------------------------ #
-data_e = pd.DataFrame(data_ratios_win['Book Leverage 1']).join(
-    np.log(data_wrds['Total Assets'], where=(data_wrds['Total Assets'].to_numpy() > 0)))
+data_e = pd.DataFrame(data_ratios_win['Book Leverage 1'])
+total_assets = np.log(data_wrds['Total Assets'],
+                      where=(data_wrds['Total Assets'] > 0))
+total_assets[data_wrds['Total Assets'].isnull()] = np.NaN
+data_e["Total Assets"] = total_assets
 data_e = data_e.join(data_ratios_win[['Asset Tangibility',
                                       'R&D Ratio',
                                      'Dividend Payer',

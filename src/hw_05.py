@@ -13,13 +13,14 @@ Modified By: Elliot Beck (elliot.beck@bf.uzh.ch>)
 
 # ------------------------------ Load libraries ------------------------------ #
 import pandas as pd
-import numpy as np
-import matplotlib.pyplot as plt
+pd.set_option('use_inf_as_na', True)
 
 # ----------------------------- Load in the data ----------------------------- #
 data_wrds = pd.read_csv('data/wrds_preprocessed.csv')
 data_ratios = pd.read_csv('data/wrds_ratios.csv')
 data_ratios['at'] = data_wrds["at"]
+
+data_wrds.conm[data_wrds.conm.str.contains('time warner', case=False)]
 
 # ------------------ Get gykeys for both companies involved ------------------ #
 exxon_gykey = data_wrds.loc[data_wrds.conm ==
@@ -36,6 +37,24 @@ data_exxon = data_ratios.loc[data_wrds.gvkey.isin(
 
 data_exxon_merger_window = data_exxon[data_exxon.fyear.isin(
     list(range(int(date_start_analysis[0]), int(date_end_analysis[0]+1))))]
+
+
+data_exxon = data_wrds.loc[data_wrds.gvkey.isin(
+    [exxon_gykey[0], mobil_gvkey[0]]), :].copy()
+
+data_exxon = data_exxon[data_exxon.fyear.isin(
+    list(range(int(date_start_analysis[0]), int(date_end_analysis[0]+1))))]
+data_exxon[['fyear', 'dlc', 'dltt', 'lt', 'che', 'at']]
+
+data_exxon = data_exxon.groupby('datadate')[[
+    'dlc', 'dltt', 'lt', 'che', 'at']].apply(lambda x: x.sum())
+
+data_exxon['book_leverage_1'] = (
+    (data_exxon['dlc'] + data_exxon['dltt']) / data_exxon['at'])
+data_exxon['book_leverage_2'] = (
+    data_exxon['lt'] / data_exxon['at'])
+data_exxon['net_book_leverage_1'] = ((
+    (data_exxon['dlc'] + data_exxon['dltt']) - data_exxon['che']) / data_exxon['at'])
 
 # ---------------------------------------------------------------------------- #
 #                       Get mapping of keys to variables                       #
@@ -59,12 +78,11 @@ varnames = {"book_leverage_1": "Book Leverage 1",
             "at": "Total assets"}
 
 # ------------------------ Beautify and write to latex ----------------------- #
-exxon_merger = data_exxon_merger_window.groupby('datadate')[[
-    'book_leverage_1', 'book_leverage_2', 'net_book_leverage_1', 'at']].apply(lambda x: x.sum())
+exxon_merger = data_exxon[['book_leverage_1',
+                           'book_leverage_2', 'net_book_leverage_1', 'at']]
 
 exxon_merger_growth_rates = exxon_merger.pct_change()
 exxon_merger_growth_rates.reset_index(inplace=True)
-
 exxon_merger_growth_rates.dropna(inplace=True)
 exxon_merger_growth_rates.rename(columns=varnames, inplace=True)
 exxon_merger_growth_rates.dropna(inplace=True)

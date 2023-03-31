@@ -14,14 +14,14 @@ Modified By: Elliot Beck (elliot.beck@bf.uzh.ch>)
 # ------------------------------ Load libraries ------------------------------ #
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
+pd.set_option('use_inf_as_na', True)
 
 # ----------------------------- Load in the data ----------------------------- #
-data_ratios_win = pd.read_csv('data/wrds_ratios.csv')
+data_ratios_win = pd.read_csv('data/wrds_ratios_winsorized.csv')
 data_wrds = pd.read_csv('data/wrds_preprocessed.csv')
 
 # ------------ Combine data to calculate growth rates per company ------------ #
-data_market_value = data_wrds[['fyear', 'fyr', 'gvkey']]
+data_market_value = data_wrds[['datadate', 'fyear', 'fyr', 'gvkey']]
 data_market_value = data_market_value.join(data_ratios_win[['c_e_at_mv']])
 data_market_value['c_e_at_mv_yoy'] = data_market_value.groupby(
     'gvkey').c_e_at_mv.pct_change()
@@ -29,13 +29,9 @@ data_market_value['c_e_at_mv_yoy'] = data_market_value.groupby(
 # ----------------- Only keep for fiscal years 2000 and 2001 ----------------- #
 data_market_value = data_market_value[data_market_value['fyear'].isin([
     2000, 2001])]
-
-# ----------------------------- Remove inf values ---------------------------- #
-data_market_value.c_e_at_mv_yoy.replace(
-    [np.inf, -np.inf], np.nan, inplace=True)
-
 data_market_value["fyear"] = data_market_value["fyear"].astype(int)
 data_market_value["fyr"] = data_market_value["fyr"].astype(int)
+
 # ------- Calculate the mean and standard deviation of the growth rates ------ #
 mean_over_time = data_market_value.groupby(
     ['fyear', 'fyr']).c_e_at_mv_yoy.mean().T

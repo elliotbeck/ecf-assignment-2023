@@ -17,6 +17,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 pd.options.mode.chained_assignment = None  # type: ignore (default='warn')
+pd.set_option('use_inf_as_na', True)
 
 # ------------------------------- Load the data ------------------------------ #
 data = pd.read_csv('data/wrds_preprocessed.csv')
@@ -29,101 +30,55 @@ data_ratios = data[['datadate', 'gvkey', 'fyear']]
 # ---------------------------------------------------------------------------- #
 
 # ------------------------------ Book leverage 1 ----------------------------- #
-data_ratios['book_leverage_1'] = np.divide(
-    data[['dlc', 'dltt']].to_numpy().sum(axis=1),
-    data['at'].to_numpy(),
-    where=data['at'].to_numpy() != 0)
+data_ratios['book_leverage_1'] = (data['dlc'] + data['dltt']) / data['at']
 
 # ------------------------------ Book leverage 2 ----------------------------- #
-data_ratios['book_leverage_2'] = np.divide(
-    data['lt'].to_numpy(),
-    data['at'].to_numpy(),
-    where=data['at'].to_numpy() != 0)
+data_ratios['book_leverage_2'] = data['lt'] / data['at']
 
 # ---------------------------- Net book leverage 1 --------------------------- #
-data_ratios['net_book_leverage_1'] = np.divide(
-    np.subtract(data[['dlc', 'dltt']].to_numpy().sum(
-        axis=1), data['che'].to_numpy()),
-    data['at'].to_numpy(),
-    where=data['at'].to_numpy() != 0)
+data_ratios['net_book_leverage_1'] = (
+    (data['dlc'] + data['dltt']) - data['che']) / data['at']
 
 # ----------------------- Common equity at market value ---------------------- #
-data_ratios['c_e_at_mv'] = np.multiply(data['csho'].to_numpy(),
-                                       data['prcc_f'].to_numpy())
-data['c_e_at_mv'] = np.multiply(data['csho'].to_numpy(),
-                                data['prcc_f'].to_numpy())
+data_ratios['c_e_at_mv'] = data['csho'] * data['prcc_f']
 
 # ------------------------------ Market leverage ----------------------------- #
-data_ratios['market_leverage'] = np.divide(
-    data[['dlc', 'dltt']].to_numpy().sum(axis=1),
-    data[['dlc', 'dltt', 'pstk', 'c_e_at_mv']].to_numpy().sum(axis=1),
-    where=(data[['dlc', 'dltt', 'pstk', 'c_e_at_mv']].to_numpy().sum(axis=1)) != 0)
+data_ratios['market_leverage'] = (data['dlc'] + data['dltt']) / (
+    data['dlc'] + data['dltt'] + data['pstk'] + data_ratios['c_e_at_mv'])
 
 # ----------------------------- Asset tangibility ---------------------------- #
-data_ratios['asset_tangibility'] = np.divide(
-    data['ppent'].to_numpy(),
-    data['at'].to_numpy(),
-    where=data['at'].to_numpy() != 0)
+data_ratios['asset_tangibility'] = data['ppent'] / data['at']
 
 # ------------------- Cash and short-term investments ratio ------------------ #
-data_ratios['cash_sti'] = np.divide(
-    data['che'].to_numpy(),
-    data["at"].to_numpy(),
-    where=data["at"].to_numpy() != 0)
+data_ratios['cash_sti'] = data['che'] / data["at"]
 
 # ----------------------------- Return on equity ----------------------------- #
-data_ratios['roe'] = np.divide(
-    data['niadj'].to_numpy(),
-    data['csho'].to_numpy(),
-    where=data['csho'].to_numpy() != 0)
+data_ratios['roe'] = data['niadj'] / data['teq']
 
 # ------------------------------- Profit margin ------------------------------ #
-data_ratios['profit_margin'] = np.divide(
-    data['niadj'].to_numpy(),
-    data['sale'].to_numpy(),
-    where=data['sale'].to_numpy() != 0)
+data_ratios['profit_margin'] = data['niadj'] / data['sale']
 
 # -------------------------------- Capex ratio ------------------------------- #
-data_ratios['capex'] = np.divide(
-    data['capx'].to_numpy(),
-    data['at'].to_numpy(),
-    where=data['at'].to_numpy() != 0)
+data_ratios['capex'] = data['capx'] / data['at']
 
 # --------------------------------- R&D ratio -------------------------------- #
-data_ratios['rd'] = np.divide(
-    data['xrd'].to_numpy(),
-    data['at'].to_numpy(),
-    where=data['at'].to_numpy() != 0)
+data_ratios['rd'] = data['xrd'] / data['at']
 
 # ------------------------------- Dividend yield ------------------------------ #
-data_ratios['dividend_yield'] = np.nan
-for gvky in data.gvkey.unique():
-    data_ratios.loc[data.gvkey == gvky, "dividend_yield"] = np.where(
-        (data.loc[data.gvkey == gvky, "fyear"] -
-         data.loc[data.gvkey == gvky, "fyear"].shift(1) == 1),
-        np.divide(np.divide(data.loc[data.gvkey == gvky, "dv"].to_numpy(),
-                            data.loc[data.gvkey == gvky, "csho"].shift(
-            1).to_numpy(),
-            where=data.loc[data.gvkey == gvky, "csho"].shift(1) != 0),
-            data.loc[data.gvkey == gvky, "prcc_f"].shift(
-            1).to_numpy(),
-            where=data.loc[data.gvkey == gvky, "prcc_f"].shift(1) != 0), np.nan)
+dividend_yield = data.groupby(['gvkey'])
+data_ratios['dividend_yield'] = dividend_yield.apply(
+    lambda x: x.assign(dividend_yield=(x.dv/x.csho)/x.prcc_f.shift(1))).dividend_yield
 
 # ------------------------------ Dividend payer ------------------------------ #
-data_ratios['dividend_payer'] = (data.groupby(["gvkey", "fyear"],
-                                              as_index=False).dv.sum().dv != 0).replace({True: 1, False: 0})
+dividend_payer = (data.dv > 0).astype(int)
+dividend_payer[data.dv.isnull()] = np.NaN
+data_ratios['dividend_payer'] = dividend_payer
 
 # ---------------------------- Total payout ratio ---------------------------- #
-data_ratios['total_payout'] = np.divide(
-    data[['dv', 'prstkc']].to_numpy().sum(axis=1),
-    data['niadj'].to_numpy(),
-    where=data['niadj'].to_numpy() != 0)
+data_ratios['total_payout'] = (data['dv'] + data['prstkc']) / data['niadj']
 
 # -------------------------- EBIT interest coverage -------------------------- #
-data_ratios['ebit_interest_coverage'] = np.divide(
-    data['oiadp'].to_numpy(),
-    data['xint'].to_numpy(),
-    where=data['xint'].to_numpy() != 0)
+data_ratios['ebit_interest_coverage'] = data['oiadp'] / data['xint']
 
 # ---------------------------- Save the ratios df ---------------------------- #
 data_ratios.to_csv('data/wrds_ratios.csv', index=False)
@@ -197,7 +152,7 @@ data_ratios_win_describe = data_ratios_win_describe.style.set_table_styles([
     {'selector': 'bottomrule', 'props': ':hline;'},],
     overwrite=False).to_latex(
         column_format='lrrrrrr',
-        caption='2ba) Summary statistics for winsorized data.')
+        caption='2ba) Summary statistics for winsorized data. (Full sample)')
 
 # ------------- Save the table to a .tex file and to a .csv file ------------- #
 file_name = "results/table_2_b_a.tex"  # Include directory path if needed
@@ -223,7 +178,7 @@ data_ratios_summary_75_percentile = data_ratios_summary_75_percentile.style.set_
     {'selector': 'bottomrule', 'props': ':hline;'},],
     overwrite=False).to_latex(
         column_format='lrrrrrr',
-        caption='2bb) Summary statistics for winsorized data. (Largest 25\% Assets)')
+        caption='2bb) Summary statistics for winsorized data. (Largest 25\% of Companies by Assets)')
 
 # ------------- Save the table to a .tex file and to a .csv file ------------- #
 file_name = "results/table_2_b_b.tex"  # Include directory path if needed
@@ -267,10 +222,7 @@ plt.show()
 # ---------------------------------------------------------------------------- #
 
 # ------------------------------------ a) ------------------------------------ #
-data_ratios_75_percentile = data.groupby('fyear')['at'].apply(
-    lambda x: x[x > x.quantile(0.75)]).drop(
-        columns='level_1').index.get_level_values(1)
-data_ratios_75_percentile = data_ratios_win.iloc[indices_75_percentile, :]
+data_ratios_75_percentile = data_ratios_win
 book_market_leverage = data_ratios_75_percentile[['Book Leverage 1', 'Book Leverage 2', 'Net Book Leverage 1',
                                                   'Market Leverage']]
 
@@ -286,7 +238,7 @@ book_market_leverage = book_market_leverage.style.set_table_styles([
     {'selector': 'bottomrule', 'props': ':hline;'},],
     overwrite=False).to_latex(
         column_format='lrrrrrr',
-        caption='2d) Summary statistics leverage variables. (Largest 25\% Assets)')
+        caption='2d) Summary statistics of winsorized leverage variables. (Full sample)')
 
 # ------------- Save the table to a .tex file and to a .csv file ------------- #
 file_name = "results/table_2_d.tex"  # Include directory path if needed
